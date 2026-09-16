@@ -115,6 +115,8 @@ function redactPreview(preview: PreflightResult) {
     createdAt: preview.manifest.createdAt,
     profiles: preview.manifest.meta.profiles,
     apiKeyEnvNames: preview.manifest.meta.apiKeyEnvNames,
+    linkedDependencies: preview.manifest.meta.linkedDependencies ?? [],
+    linkedSources: preview.manifest.meta.linkedSources ?? [],
     sensitiveCategories: preview.manifest.meta.sensitiveCategories,
     hasSensitiveData: preview.hasSensitiveData,
     fileCount: preview.manifest.files.length,
@@ -298,7 +300,12 @@ export function apply(ctx: Context): void {
         try {
           const destination = resolveExportDestination(requested)
           const result = await exclusive(() =>
-            exportMigration({ home: resolveTargetHome(), destination, password }),
+            exportMigration({
+              home: resolveTargetHome(),
+              destination,
+              password,
+              includeLinkedSources: body?.includeLinkedSources !== false,
+            }),
           )
           writeJson(response, 200, {
             ok: true,
@@ -307,6 +314,8 @@ export function apply(ctx: Context): void {
             sha256: result.sha256,
             profiles: result.manifest.meta.profiles,
             apiKeyEnvNames: result.manifest.meta.apiKeyEnvNames,
+            linkedDependencies: result.manifest.meta.linkedDependencies ?? [],
+            linkedSources: result.manifest.meta.linkedSources ?? [],
           })
         } catch (error) {
           if (error instanceof BusyError) {
@@ -354,6 +363,10 @@ export function apply(ctx: Context): void {
         const operationId = stringField(body, 'operationId')
         const confirmSensitive = body?.confirmSensitive === true
         const installDependencies = body?.installDependencies === true
+        // Lifecycle scripts stay off unless the user opts in: they are the only
+        // way a plugin can fetch a binary or build a native module, and the only
+        // way restored data could run code during install.
+        const allowScripts = body?.allowScripts === true
         const preview = operationId === undefined ? undefined : previews.get(operationId)
         if (preview === undefined || !confirmSensitive) {
           return writeJson(response, 400, { ok: false, code: 'invalid-confirmation', message: '请先预检并确认敏感数据声明' })
@@ -361,11 +374,17 @@ export function apply(ctx: Context): void {
         previews.delete(preview.operationId)
         try {
           const result = await exclusive(() =>
-            applyMigration(preview, { confirmSensitive, installDependencies }),
+            applyMigration(preview, {
+              confirmSensitive,
+              installDependencies,
+              allowScripts,
+              materializeSources: body?.materializeSources !== false,
+            }),
           )
           writeJson(response, 200, {
             ok: true,
-            installs: result.installs.map(item => ({ profile: item.profile, ok: item.ok, status: item.status })),
+            installs: result.installs,
+            sources: result.sources,
           })
         } catch (error) {
           if (error instanceof BusyError) {

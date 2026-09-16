@@ -41,6 +41,16 @@ interface LinkedSource {
   bytes: number
 }
 
+/**
+ * Paths that must move because the recorded location cannot exist here — a
+ * profile exported on a machine with a second drive, restored onto one with a
+ * single drive.
+ */
+interface RemapPlan {
+  entries: { profile: string; name: string; from: string; to: string }[]
+  storeDirs: { profile: string; value: string }[]
+}
+
 /** What happened to one carried source during a restore. */
 interface SourceOutcome {
   name: string
@@ -62,6 +72,7 @@ interface Preview {
   apiKeyEnvNames: string[]
   linkedDependencies: LinkedDependency[]
   linkedSources: LinkedSource[]
+  remap: RemapPlan
   sensitiveCategories: string[]
   hasSensitiveData: boolean
   fileCount: number
@@ -493,13 +504,42 @@ export function DataMigrationPanel(): ReactElement {
                 </ul>
               </div>
             )}
+            {preview.remap.entries.length > 0 && (
+              <div className={`${classes.callout} ${classes.calloutWarn}`}>
+                此迁移包记录的插件路径在<b>本机不存在</b>（通常是源机器有多个盘、本机没有）。
+                若不改路径，安装会「成功」但 <code>dsh</code> 拒绝启动。恢复时会把这些插件改放到
+                DSH 主目录下，并同步改写 <code>link:</code> 声明与 lockfile：
+                <ul className={classes.list}>
+                  {preview.remap.entries.map(item => (
+                    <li key={`${item.profile}-${item.name}`}>
+                      <code>{item.name}</code>：<code>{item.from}</code> → <code>{item.to}</code>
+                    </li>
+                  ))}
+                </ul>
+                {preview.remap.storeDirs.length > 0 && (
+                  <>
+                    以下 pnpm <code>storeDir</code> 指向不存在的盘，将被移除，改用 pnpm 默认存储位置：
+                    <ul className={classes.list}>
+                      {preview.remap.storeDirs.map(item => (
+                        <li key={`${item.profile}-${item.value}`}>
+                          <code>{item.value}</code>（{item.profile}）
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
             {preview.linkedSources.length > 0 && (
               <div className={`${classes.callout} ${classes.calloutWarn}`}>
-                迁移包<b>已携带</b>以下插件源码，恢复时会写回上述绝对路径（若该目录已有内容则不会覆盖）：
+                迁移包<b>已携带</b>以下插件源码，恢复时写到对应位置（若该目录已有内容则不会覆盖）：
                 <ul className={classes.list}>
                   {preview.linkedSources.map(item => (
                     <li key={`${item.profile}-${item.name}`}>
-                      <code>{item.target}</code>（{item.fileCount} 个文件，{formatBytes(item.bytes)}）
+                      <code>
+                        {preview.remap.entries.find(entry => entry.name === item.name)?.to ?? item.target}
+                      </code>
+                      （{item.fileCount} 个文件，{formatBytes(item.bytes)}）
                     </li>
                   ))}
                 </ul>
@@ -521,6 +561,11 @@ export function DataMigrationPanel(): ReactElement {
                 有 <strong>{preview.linkedDependencies.length - preview.linkedSources.length}</strong> 个
                 <code>link:</code> 依赖没有随包携带（导出时未勾选，或源目录不存在）。
                 请手动把它们放到上述路径，否则对应 profile 无法启动。
+              </div>
+            )}
+            {preview.remap.entries.length > 0 && preview.linkedSources.length < preview.linkedDependencies.length && (
+              <div className={`${classes.callout} ${classes.calloutDanger}`}>
+                有依赖既没有随包携带、原路径在本机也不存在，无法自动修复 —— 必须手动提供源码。
               </div>
             )}
             <div className={classes.row}>

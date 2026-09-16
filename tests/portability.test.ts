@@ -15,8 +15,9 @@ import {
   probeBundles,
   resolveLinkTarget,
 } from '../src/migration/links.js'
+import { applyRemap, planRemap } from '../src/migration/remap.js'
 import { discoverApiKeyEnvNames, scanDshHome } from '../src/migration/scanner.js'
-import type { InstallResult } from '../src/migration/types.js'
+import type { InstallResult, LinkedDependency, LinkedSource } from '../src/migration/types.js'
 
 /**
  * Portability cover.
@@ -451,6 +452,144 @@ describe('carried link: sources make a profile portable', () => {
     })
     expect(applied.sources).toEqual([])
     expect(existsSync(source)).toBe(false)
+  })
+})
+
+describe('paths recorded on another drive layout are relocated', () => {
+  const source = 'D:/code/提示词/dsh-safe-plugin'
+  const dependency: LinkedDependency = {
+    profile: 'web',
+    name: 'dsh-safe-plugin',
+    spec: `link:${source}`,
+    target: source,
+  }
+  const carried: LinkedSource = {
+    profile: 'web',
+    name: 'dsh-safe-plugin',
+    target: source,
+    prefix: 'payload/.migration-linked-sources/web/dsh-safe-plugin',
+    fileCount: 2,
+    bytes: 10,
+  }
+  /** A machine with only a C: drive. */
+  const singleDrive = (candidate: string): boolean => candidate.toLowerCase().startsWith('c:')
+
+  it('relocates into the DSH home when the recorded drive does not exist', () => {
+    const plan = planRemap({
+      sources: [carried],
+      dependencies: [dependency],
+      targetHome: 'C:\\Users\\me\\.dsh',
+      readProfileFile: () => undefined,
+      exists: singleDrive,
+    })
+    expect(plan.entries).toEqual([
+      {
+        profile: 'web',
+        name: 'dsh-safe-plugin',
+        from: source,
+        to: 'C:\\Users\\me\\.dsh\\linked-plugins\\dsh-safe-plugin',
+      },
+    ])
+  })
+
+  it('leaves an identically laid out machine alone', () => {
+    const plan = planRemap({
+      sources: [carried],
+      dependencies: [dependency],
+      targetHome: 'D:\\home\\.dsh',
+      readProfileFile: () => undefined,
+      exists: () => true,
+    })
+    expect(plan.entries).toEqual([])
+  })
+
+  it('does not relocate a dependency the package cannot supply', () => {
+    // Nothing to move it *to*: the panel reports these as manual work instead.
+    const plan = planRemap({
+      sources: [],
+      dependencies: [dependency],
+      targetHome: 'C:\\Users\\me\\.dsh',
+      readProfileFile: () => undefined,
+      exists: singleDrive,
+    })
+    expect(plan.entries).toEqual([])
+  })
+
+  it('drops a pnpm storeDir pinned to a missing drive', () => {
+    const plan = planRemap({
+      sources: [carried],
+      dependencies: [dependency],
+      targetHome: 'C:\\Users\\me\\.dsh',
+      readProfileFile: (_profile, name) =>
+        name === 'pnpm-workspace.yaml' ? 'packages:\n  - .\nstoreDir: D:\\code\\dsh\\.pnpm-store\n' : undefined,
+      exists: singleDrive,
+    })
+    expect(plan.storeDirs).toEqual([{ profile: 'web', value: 'D:\\code\\dsh\\.pnpm-store' }])
+  })
+
+  it('rewrites the declarations a relocated link appears in', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'remap-'))
+    const profile = join(home, 'profiles', 'web')
+    await mkdir(profile, { recursive: true })
+    await writeFile(
+      join(profile, 'package.json'),
+      `{\n  "dependencies": { "dsh-safe-plugin": "link:D:/code/提示词/dsh-safe-plugin" }\n}\n`,
+    )
+    await writeFile(
+      join(profile, 'pnpm-lock.yaml'),
+      [
+        'importers:',
+        '  .:',
+        '    dependencies:',
+        '      dsh-safe-plugin:',
+        '        specifier: link:D:/code/提示词/dsh-safe-plugin',
+        '        version: link:D:/code/提示词/dsh-safe-plugin',
+      ].join('\n'),
+    )
+    await writeFile(
+      join(profile, 'pnpm-workspace.yaml'),
+      'packages:\n  - .\nstoreDir: D:\\code\\dsh\\.pnpm-store\nnodeLinker: hoisted\n',
+    )
+    const plan = planRemap({
+      sources: [carried],
+      dependencies: [dependency],
+      targetHome: home,
+      readProfileFile: (_profile, name) =>
+        name === 'pnpm-workspace.yaml' ? 'packages:\n  - .\nstoreDir: D:\\code\\dsh\\.pnpm-store\n' : undefined,
+      exists: singleDrive,
+    })
+    const result = await applyRemap(home, plan)
+    expect(result.rewritten).toEqual([
+      'profiles/web/package.json',
+      'profiles/web/pnpm-lock.yaml',
+      'profiles/web/pnpm-workspace.yaml',
+    ])
+
+    const pkg = await readFile(join(profile, 'package.json'), 'utf8')
+    const lock = await readFile(join(profile, 'pnpm-lock.yaml'), 'utf8')
+    const expected = join(home, 'linked-plugins', 'dsh-safe-plugin').replaceAll('\\', '/')
+    expect(pkg).toContain(`link:${expected}`)
+    expect(pkg).not.toContain('D:/code')
+    // Both lockfile lines must move together or --frozen-lockfile rejects it.
+    expect(lock.match(new RegExp(`link:${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'))).toHaveLength(2)
+    expect(lock).not.toContain('D:/code')
+
+    // The store pin is dropped, and nothing else in the file is disturbed.
+    const workspace = await readFile(join(profile, 'pnpm-workspace.yaml'), 'utf8')
+    expect(workspace).not.toContain('storeDir')
+    expect(workspace).not.toContain('pnpm-store')
+    expect(workspace).toContain('nodeLinker: hoisted')
+  })
+
+  it('leaves a usable storeDir in place', async () => {
+    const plan = planRemap({
+      sources: [],
+      dependencies: [dependency],
+      targetHome: 'C:\\Users\\me\\.dsh',
+      readProfileFile: () => 'storeDir: D:\\code\\dsh\\.pnpm-store\n',
+      exists: () => true,
+    })
+    expect(plan.storeDirs).toEqual([])
   })
 })
 

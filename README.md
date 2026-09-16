@@ -10,7 +10,8 @@ DSH Web 的本地数据迁移插件。它把 DSH 的配置、profile 插件清�
 - **导入**：既可以用文件对话框直接选择 `.dsh-migrate`，也可以选择它所在的文件夹（自动读取其中的 `backup.dsh-migrate`）。
 - **预检**：解密、校验清单与哈希后才展示摘要（导出时间、profile、文件数、API Key 变量名、敏感类别、`link:` 依赖及其携带的源码）；预检阶段不修改本机任何配置。
 - **确认恢复**：必须勾选敏感数据声明才会启用恢复按钮；恢复前为目标文件建立恢复点，写入或环境变量失败时自动回滚。
-- **携带插件源码**：profile 里 `link:` 依赖指向的是**源机器上的绝对目录**，而这些插件几乎都没发布到 npm。导出时可把它们一并打进迁移包，恢复时写回原路径（目录已有内容则不覆盖），这样新机器不需要手工拷贝。不携带时面板会明确警告。
+- **携带插件源码**：profile 里 `link:` 依赖指向的是**源机器上的绝对目录**，而这些插件几乎都没发布到 npm。导出时可把它们一并打进迁移包，恢复时写回原路径（目录已有内容则不覆盖）。不携带时面板会明确警告。
+- **路径自动改道**：源机器若有多个盘而目标机器只有一个，`link:D:\...` 这类路径根本无法存在。预检会检测出记录路径所在盘不存在的情况，把它改放到 `<DSH 主目录>\linked-plugins\<插件名>`，并同步改写 `package.json` 与 `pnpm-lock.yaml` 里的 `link:` 声明（两处必须一致，否则 `--frozen-lockfile` 会拒绝），同时移除指向该盘的 pnpm `storeDir`。改道明细在预检摘要里逐条列出，不静默改路径。
 - **依赖恢复与安装后校验**：仅对带有 `pnpm-lock.yaml` 的 profile 执行 `pnpm install --frozen-lockfile`。lifecycle scripts 默认禁用，可显式勾选放行（`cloudflared` 要下载二进制、`node-pty` 要编译原生模块）。
 - **安装后校验**：`pnpm install` 对**不存在的 `link:` 目标也会退出 0**，只报告退出码等于报喜不报忧。因此安装后按 DSH 的解析顺序逐个探测 `dsh.profile.bundles`，把「已装但 bundle 解析不了」和「无法在本插件内验证」分开报告，并列出被跳过的构建脚本。
 
@@ -77,6 +78,7 @@ dsh-data-migration/
 │     ├─ scanner.ts            # 白名单扫描、API Key env 名发现
 │     ├─ links.ts              # link: 依赖识别、DSH 顺序的 bundle 解析探测
 │     ├─ sources.ts            # link: 源码随包携带与写回
+│     ├─ remap.ts              # 盘符/根目录不可用时的路径改道与声明改写
 │     ├─ manifest.ts           # 清单创建与校验
 │     ├─ archive.ts            # tar.gz 创建与安全解包
 │     ├─ crypto.ts             # scrypt / AES-GCM 容器
@@ -111,6 +113,7 @@ dsh-data-migration/
 | 插件私有状态丢失 | 扫描范围只含配置与 profile，`skin-center/`、`task-board/`、`remote-web-ui-registry/`、`pet.json`、`dsh-usage/`、`dsh-session-archive/`、`data/` 都没进包 | 扩充到上述路径；同时排除 `.lock` / `.tmp` 残留文件（陈旧锁文件会卡住新机器上的插件） |
 | 迁移摘要只列出 1 个 API Key 变量 | 发现正则要求 `apiKeyEnv` 出现在行首且值到行尾，而 `settings.yaml` 用 flow 风格写作 `{ apiKeyEnv: NAME, models: [...] }`，值后面是逗号 | 改为逐行扫描、允许行内任意位置，并校验值后面必须是分隔符，避免把注释和非法值算进来 |
 | 预检解密出的明文凭据长期留在 `%TEMP%` | 暂存目录只在恢复成功时才删除；只预检不恢复（或操作过期）就永久残留 | 恢复结束即删除；进程退出时删除本进程创建的；超过 30 分钟未恢复的残留由下一次预检清理 |
+| 迁到单盘机器后 `dsh` 拒绝启动 | 源机器插件在 `D:\...`，而 `link:` 记的是绝对路径；目标机没有 D 盘，路径无法存在，`pnpm install` 却仍退出 0 | 预检检测记录路径所在盘是否存在，不存在则把源码改放到 `<DSH 主目录>\linked-plugins\<插件名>`，并同步改写 `package.json` / `pnpm-lock.yaml` 的 `link:` 声明与 pnpm `storeDir`；改道明细在摘要中列明 |
 
 ## 许可证
 

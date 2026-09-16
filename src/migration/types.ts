@@ -56,11 +56,36 @@ export interface EnvironmentAdapter {
   unset(name: string): Promise<void> | void
 }
 
+/** A `link:` dependency whose recorded target cannot be used on this machine. */
+export interface RemapEntry {
+  profile: string
+  name: string
+  /** Absolute target recorded by the source machine. */
+  from: string
+  /** Absolute target to use here. */
+  to: string
+}
+
+/** A pnpm `storeDir` pinned to a drive this machine does not have. */
+export interface StoreDirDrop {
+  profile: string
+  /** The unusable value, kept only so the preview can name it. */
+  value: string
+}
+
+/** Paths that must move, plus pnpm store pins that must go. */
+export interface RemapPlan {
+  entries: RemapEntry[]
+  storeDirs: StoreDirDrop[]
+}
+
 export interface PreflightResult {
   operationId: string
   targetHome: string
   manifest: MigrationManifest
   hasSensitiveData: boolean
+  /** Absolute paths that will move because their recorded location is unusable here. */
+  remap: RemapPlan
 }
 
 /** What happened to one carried `link:` source during an apply. */

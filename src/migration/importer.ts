@@ -1,5 +1,5 @@
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { rmSync, type Dirent } from 'node:fs'
+import { readFileSync, rmSync, type Dirent } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -10,6 +10,7 @@ import { applyEnvValues, processEnvironment, validateApiKeyEnvValues } from './e
 import { applyAtomically } from './snapshot.js'
 import { installProfiles } from './installer.js'
 import { LINKED_SOURCE_PREFIX, materializeLinkedSources, undoMaterializedSources } from './sources.js'
+import { applyRemap, planRemap, remapDestinations } from './remap.js'
 import type { EnvironmentAdapter, LinkedSource, MaterializeResult, MigrationManifest, PreflightResult } from './types.js'
 
 interface Operation { staging: string; secrets: Record<string, string>; preview: PreflightResult; manifest: MigrationManifest; profiles: string[]; createdAt: number }
@@ -122,7 +123,22 @@ export async function preflightMigration(packagePath: string, password: string, 
     if (!Array.isArray(manifest.meta.apiKeyEnvNames)) throw new Error('Invalid migration environment metadata')
     const declaredNames = new Set(manifest.meta.apiKeyEnvNames)
     if (declaredNames.size !== manifest.meta.apiKeyEnvNames.length || [...declaredNames].some(name => typeof name !== 'string') || Object.keys(secrets).some(name => !declaredNames.has(name))) throw new Error('Undeclared migration environment variable')
-    const operationId = randomUUID(); const preview = { operationId, targetHome, manifest, hasSensitiveData: Boolean(manifest.meta.sensitiveCategories.length || Object.keys(secrets).length) }
+    // A profile exported on a machine with more drives than this one names paths
+    // that cannot exist here. Work out what must move before the user confirms,
+    // so the preview can show it.
+    const remap = planRemap({
+      sources: manifest.meta.linkedSources ?? [],
+      dependencies: manifest.meta.linkedDependencies ?? [],
+      targetHome,
+      readProfileFile: (profile, name) => {
+        try {
+          return readFileSync(join(staging, 'payload', 'profiles', profile, name), 'utf8')
+        } catch {
+          return undefined
+        }
+      },
+    })
+    const operationId = randomUUID(); const preview = { operationId, targetHome, manifest, hasSensitiveData: Boolean(manifest.meta.sensitiveCategories.length || Object.keys(secrets).length), remap }
     operations.set(operationId, { staging, secrets, preview, manifest, profiles, createdAt: Date.now() }); return preview
   } catch (error) { await releaseStaging(staging); throw error }
 }
@@ -139,6 +155,8 @@ export interface ApplyOptions {
 export interface ApplyResult {
   installs: Awaited<ReturnType<typeof installProfiles>>
   sources: MaterializeResult[]
+  /** Profile-relative files whose `link:`/`storeDir` declarations were rewritten. */
+  rewritten: string[]
 }
 
 export async function applyMigration(preflight: PreflightResult, options: ApplyOptions): Promise<ApplyResult> {
@@ -154,18 +172,23 @@ export async function applyMigration(preflight: PreflightResult, options: ApplyO
     const replacements = await Promise.all(homeFiles.map(async file => ({ relativePath: file.path.slice('payload/'.length), data: await readFile(join(operation.staging, file.path)) })))
     const applied = await applyAtomically(preflight.targetHome, replacements)
     let created: string[] = []
+    let rewritten: string[] = []
     try {
+      // Relocate unusable absolute paths, then place the carried sources where
+      // the rewritten declarations now point.
+      const remapped = await applyRemap(preflight.targetHome, preflight.remap)
+      rewritten = remapped.rewritten
       await applyEnvValues(options.env ?? processEnvironment, operation.secrets)
       let sources: MaterializeResult[] = []
       const declaredSources = operation.manifest.meta.linkedSources ?? []
       if (options.materializeSources !== false && declaredSources.length > 0) {
         const entries = await Promise.all(sourceFiles.map(async file => ({ path: file.path, data: await readFile(join(operation.staging, file.path)) })))
-        const materialized = await materializeLinkedSources(declaredSources, entries)
+        const materialized = await materializeLinkedSources(declaredSources, entries, remapDestinations(preflight.remap))
         created = materialized.created
         sources = materialized.results
       }
       const installs = options.installDependencies === false ? [] : await installProfiles(preflight.targetHome, operation.profiles, undefined, undefined, { allowScripts: options.allowScripts ?? false })
-      return { installs, sources }
+      return { installs, sources, rewritten }
     } catch (error) {
       // Undo in the reverse order of creation: the directories this run made,
       // then the home files.

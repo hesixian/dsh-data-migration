@@ -117,6 +117,7 @@ function redactPreview(preview: PreflightResult) {
     apiKeyEnvNames: preview.manifest.meta.apiKeyEnvNames,
     linkedDependencies: preview.manifest.meta.linkedDependencies ?? [],
     linkedSources: preview.manifest.meta.linkedSources ?? [],
+    remap: preview.remap,
     sensitiveCategories: preview.manifest.meta.sensitiveCategories,
     hasSensitiveData: preview.hasSensitiveData,
     fileCount: preview.manifest.files.length,
@@ -385,6 +386,7 @@ export function apply(ctx: Context): void {
             ok: true,
             installs: result.installs,
             sources: result.sources,
+            rewritten: result.rewritten,
           })
         } catch (error) {
           if (error instanceof BusyError) {

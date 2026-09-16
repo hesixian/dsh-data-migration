@@ -151,42 +151,46 @@ async function hasEntries(path: string): Promise<boolean> {
 }
 
 /**
- * Restore carried sources to the absolute paths their `link:` specs name.
+ * Restore carried sources to the paths their `link:` specs will name.
  *
  * An existing non-empty target is left untouched — the machine already has the
  * plugin, and overwriting someone's working checkout is not this tool's job.
  * @param sources - manifest entries describing what the package carries.
  * @param entries - archive entries, keyed by their in-package path.
+ * @param destinations - optional relocation map (`profile\0name` to absolute
+ *   path) for sources whose recorded location is unusable on this machine.
  * @returns one result per source, and the directories this call created so the
  *   caller can undo them if a later step fails.
  */
 export async function materializeLinkedSources(
   sources: LinkedSource[],
   entries: ArchiveEntry[],
+  destinations: Map<string, string> = new Map(),
 ): Promise<{ results: MaterializeResult[]; created: string[] }> {
   const results: MaterializeResult[] = []
   const created: string[] = []
   for (const source of sources) {
-    if (!isAbsolute(source.target)) {
-      results.push({ name: source.name, target: source.target, status: 'failed' })
+    const destination = destinations.get(`${source.profile}\0${source.name}`) ?? source.target
+    if (!isAbsolute(destination)) {
+      results.push({ name: source.name, target: destination, status: 'failed' })
       continue
     }
-    if (await hasEntries(source.target)) {
-      results.push({ name: source.name, target: source.target, status: 'already-present' })
+    if (await hasEntries(destination)) {
+      results.push({ name: source.name, target: destination, status: 'already-present' })
       continue
     }
     try {
       const owned = entries.filter(entry => entry.path.startsWith(`${source.prefix}/`))
       for (const entry of owned) {
         const relative = entry.path.slice(source.prefix.length + 1)
-        const full = join(source.target, relative)
+        const full = join(destination, relative)
         await mkdir(join(full, '..'), { recursive: true })
         await writeFile(full, entry.data, { mode: 0o600 })
       }
-      created.push(source.target)
-      results.push({ name: source.name, target: source.target, status: 'created' })
+      created.push(destination)
+      results.push({ name: source.name, target: destination, status: 'created' })
     } catch {
-      results.push({ name: source.name, target: source.target, status: 'failed' })
+      results.push({ name: source.name, target: destination, status: 'failed' })
     }
   }
   return { results, created }

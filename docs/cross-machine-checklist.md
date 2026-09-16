@@ -3,8 +3,8 @@
 从两台盘的机器（源机器，插件在 `D:\code\...`）迁移到**只有 C 盘**的机器时按顺序执行。
 每一步给出**命令**和**期望输出**；不符就跳到文末排查表。
 
-> 本清单对应**包含本次修复**的版本。若新机器用 `git clone` 取代码，源机器必须先把修复推送到 GitHub，
-> 否则拿到的是没有「源码随包携带」「路径自动改道」「安装后校验」的旧版本。
+> 本清单对应**包含本次修复**的版本。这些修复在 **PR #3**（分支 `fix/cross-machine-portability`）里。
+> 直接 `git clone` 主分支会拿到**没有修复的旧代码**，今晚就白跑了。所以阶段 2 必须先解决代码来源。
 
 ## 这台新机器上会发生什么（先读这段）
 
@@ -48,14 +48,21 @@ link:D:/code/提示词/dsh-safe-plugin
 
 ## 阶段 2：把代码和迁移包送到新机器
 
-本插件本身必须先在长新机器上跑起来才谈得上导入，所以先拿到源码。**放在哪个盘都行**，C 盘即可：
+本插件本身必须先在长新机器上跑起来才谈得上导入，所以先拿到源码。**放在哪个盘都行**，C 盘即可。
+
+**推荐 B（今晚最稳）**，因为这台机器连 `github.com:443` 被阻断（`api.github.com` 通、`github.com` 不通），
+新机器的网络状况未知：
+
+**A. 走 GitHub** —— 先在 GitHub 上把 **PR #3 合并进 main**，或者直接取该分支：
 
 ```powershell
-git clone https://github.com/hesixian/dsh-data-migration C:\code\dsh-data-migration
+git clone -b fix/cross-machine-portability https://github.com/hesixian/dsh-data-migration C:\code\dsh-data-migration
 ```
 
-（若走 GitHub 不便，也可把源机器的 `D:\code\dsh-data-migration` 整个目录拷到 `C:\code\dsh-data-migration`，
-排除 `node_modules` 和 `.git`。）
+（合并后再 clone 主分支也可以。**不要**在未合并时 clone 主分支。）
+
+**B. 走 U 盘** —— 把这台机器的 `D:\code\dsh-data-migration` 整个目录拷到新机器的 `C:\code\dsh-data-migration`，
+拷贝时排除 `node_modules` 和 `.git`。新机器上再 `pnpm install && pnpm build` 即可。
 
 迁移包单独用 U 盘传。**不要**走聊天软件或公共网盘。
 

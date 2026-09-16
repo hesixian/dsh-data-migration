@@ -19,7 +19,7 @@ export function validateManifestProfiles(manifest: MigrationManifest): string[] 
 }
 export function createManifest(entries: { path: string; data: Buffer }[], meta: Partial<MigrationManifest['meta']> = {}): MigrationManifest {
   const seen = new Set<string>(); const files: ManifestFile[] = entries.map(entry => { if (!isSafeRelativePath(entry.path) || !isAllowedArchivePath(entry.path) || entry.path === 'manifest.json') throw new Error(`Unsafe manifest path: ${entry.path}`); const key = entry.path.toLocaleLowerCase('en-US'); if (seen.has(key)) throw new Error('Duplicate manifest path'); seen.add(key); return { path: entry.path, size: entry.data.length, sha256: sha256(entry.data) } }).sort((a, b) => a.path.localeCompare(b.path))
-  return { formatVersion: FORMAT_VERSION, createdAt: new Date().toISOString(), files, meta: { profiles: meta.profiles ?? [], apiKeyEnvNames: meta.apiKeyEnvNames ?? [], sensitiveCategories: meta.sensitiveCategories ?? [] } }
+  return { formatVersion: FORMAT_VERSION, createdAt: new Date().toISOString(), files, meta: { profiles: meta.profiles ?? [], apiKeyEnvNames: meta.apiKeyEnvNames ?? [], linkedDependencies: meta.linkedDependencies ?? [], linkedSources: meta.linkedSources ?? [], sensitiveCategories: meta.sensitiveCategories ?? [] } }
 }
 export async function validateManifest(staging: string, manifest: MigrationManifest): Promise<void> {
   if (manifest.formatVersion !== FORMAT_VERSION || !Array.isArray(manifest.files)) throw new Error('Unsupported manifest')

@@ -42,6 +42,8 @@ export const classes = {
   chipSuccess: `${PREFIX}-chip-success`,
   callout: `${PREFIX}-callout`,
   calloutDanger: `${PREFIX}-callout-danger`,
+  calloutWarn: `${PREFIX}-callout-warn`,
+  list: `${PREFIX}-list`,
   summary: `${PREFIX}-summary`,
   summaryGrid: `${PREFIX}-summary-grid`,
   summaryTerm: `${PREFIX}-summary-term`,
@@ -89,6 +91,10 @@ const css = `
 .${classes.chipBusiness}{color:var(--dsw-alias-state-business-primary,#4a5fa8);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4a5fa8) 10%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4a5fa8) 22%,transparent)}
 .${classes.callout}{border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary,#b45309) 26%,transparent);border-left:3px solid var(--dsw-alias-state-warn-primary,#b45309);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#b45309) 7%,transparent);color:var(--dsw-alias-state-warn-primary,#b45309);border-radius:8px;padding:8px 12px;font-size:12px}
 .${classes.calloutDanger}{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d64545) 26%,transparent);border-left-color:var(--dsw-alias-state-error-primary,#d64545);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d64545) 7%,transparent);color:var(--dsw-alias-state-error-primary,#d64545)}
+.${classes.calloutWarn}{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#b45309) 30%,transparent);border-left-color:var(--dsw-alias-state-warn-primary,#b45309);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#b45309) 8%,transparent);color:var(--dsw-alias-state-warn-primary,#b45309)}
+.${classes.list}{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:2px}
+.${classes.list} code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.${classes.callout} code,.${classes.result} code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;overflow-wrap:anywhere}
 .${classes.summary}{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-l1,#e1e5ea);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#f2f4f7)}
 .${classes.summaryGrid}{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px}
 .${classes.summaryTerm}{color:var(--dsw-alias-label-secondary,#57606a)}

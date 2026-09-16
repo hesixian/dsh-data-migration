@@ -226,7 +226,7 @@ export function DataMigrationPanel(): ReactElement {
         <LocationField
           label="保存位置"
           hint="选择文件夹会自动生成 backup.dsh-migrate；也可直接填写完整 .dsh-migrate 文件路径。"
-          placeholder="例如 E:\\dsh-backup"
+          placeholder={'例如 E:\\dsh-backup'}
           value={exportPath}
           disabled={busy}
           onChange={setExportPath}
@@ -298,7 +298,7 @@ export function DataMigrationPanel(): ReactElement {
         <LocationField
           label="迁移包位置"
           hint="可以直接选择 .dsh-migrate 文件，也可以选择它所在的文件夹（将读取其中的 backup.dsh-migrate）。"
-          placeholder="例如 E:\\dsh-backup\\backup.dsh-migrate"
+          placeholder={'例如 E:\\dsh-backup\\backup.dsh-migrate'}
           value={sourcePath}
           disabled={busy}
           onChange={setSourcePath}

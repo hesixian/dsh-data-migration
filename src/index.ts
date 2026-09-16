@@ -138,20 +138,24 @@ function psLiteral(value: string): string {
 }
 
 /**
- * Show a native Windows picker through PowerShell and resolve with the chosen
- * path, or `undefined` when the user cancels. The dialog renders on the
- * desktop session of the DSH host process; a headless or service context
- * returns no selection (treated as cancel).
+ * Pin PowerShell's redirected stdout to UTF-8.
  *
- * The dialog is explicitly STA — `FolderBrowserDialog` needs a single
- * threaded apartment — and output is decoded as UTF-16LE because the chosen
- * path may contain non-ASCII characters such as a 中文 user name.
+ * `powershell.exe` encodes stdout with the console code page — CP936 on this
+ * 中文 Windows — so a chosen path arrives as GBK bytes. Measured on this host:
+ * without this line `D:\code\提示词\dsh-safe-plugin` comes back as
+ * `443a5c...cce1cabe...` (GBK), which decoded as UTF-16LE renders as the
+ * mojibake `㩄捜摯履…`; with it the same path arrives as UTF-8 and round-trips
+ * byte for byte. It must run before anything writes to stdout.
  */
-export function pickWithPowerShell(
-  kind: 'directory' | 'file',
-  run: typeof spawn = spawn,
-  timeoutMs = PICKER_TIMEOUT_MS,
-): Promise<string | undefined> {
+export const PICKER_OUTPUT_PREAMBLE = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8'
+
+/**
+ * Build the PowerShell program that shows one native picker and prints the
+ * chosen path. STA is explicit because `FolderBrowserDialog` requires a single
+ * threaded apartment, and the path is written with `[Console]::Out.Write` so a
+ * cancelled dialog prints nothing at all rather than an empty line.
+ */
+export function pickerScript(kind: 'directory' | 'file'): string {
   const dialog =
     kind === 'directory'
       ? [
@@ -166,13 +170,41 @@ export function pickWithPowerShell(
           '$dlg.CheckFileExists = $true',
         ]
   const selected = kind === 'directory' ? '$dlg.SelectedPath' : '$dlg.FileName'
-  const script = [
+  return [
+    PICKER_OUTPUT_PREAMBLE,
     'Add-Type -AssemblyName System.Windows.Forms',
     ...dialog,
     'if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {',
     `  [Console]::Out.Write(${selected})`,
     '}',
   ].join('; ')
+}
+
+/**
+ * Decode the picker's stdout into the chosen path.
+ *
+ * UTF-8 is the exact inverse of {@link PICKER_OUTPUT_PREAMBLE}, not a guess. A
+ * BOM (should a host ever emit one) and the trailing newline are stripped.
+ */
+export function decodePickerOutput(buffer: Buffer): string {
+  return buffer
+    .toString('utf8')
+    .replace(/^\uFEFF/, '')
+    .replace(/[\r\n\u0000]+$/g, '')
+}
+
+/**
+ * Show a native Windows picker and resolve with the chosen path, or
+ * `undefined` when the user cancels. The dialog renders on the desktop session
+ * of the DSH host process; a headless or service context returns no selection
+ * (treated as cancel).
+ */
+export function pickWithPowerShell(
+  kind: 'directory' | 'file',
+  run: typeof spawn = spawn,
+  timeoutMs = PICKER_TIMEOUT_MS,
+): Promise<string | undefined> {
+  const script = pickerScript(kind)
   return new Promise(resolvePromise => {
     const child = run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -197,7 +229,7 @@ export function pickWithPowerShell(
       if (settled) return
       settled = true
       clearTimeout(timer)
-      const value = Buffer.concat(chunks).toString('utf16le').replace(/[\r\n\u0000]+$/g, '')
+      const value = decodePickerOutput(Buffer.concat(chunks))
       resolvePromise(value.length > 0 ? value : undefined)
     })
   })
